@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.vite/
+*.log
+.DS_Store
+
+# Privacy: do NOT publish the real client drawing to a public GitHub Pages site.
+# Remove this line only if you are OK with the sample being publicly downloadable.
+public/sample.pdf
