@@ -74,6 +74,7 @@ export interface DrawingState {
   floor?: string;
   page?: number;
   scale?: string;
+  rotation?: number;
 }
 
 export interface ProjectState {

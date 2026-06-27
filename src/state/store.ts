@@ -12,6 +12,8 @@ import { getIdentity } from "./identity";
 export type Family = "progress" | "defect" | "tag";
 export type GeomType = "point" | "line";
 
+const normRotation = (r: number) => ((Math.round(r / 90) * 90) % 360 + 360) % 360;
+
 interface AppStore {
   session: ProjectSession | null;
   state: ProjectState;
@@ -19,6 +21,7 @@ interface AppStore {
 
   init: () => Promise<void>;
   ensureDrawing: (id: string, meta: Record<string, unknown>) => Promise<void>;
+  setDrawingRotation: (drawingId: string, rotation: number) => Promise<void>;
   place: (
     drawingId: string, revision: string, page: number,
     family: Family, geomType: GeomType, geometry: number[],
@@ -54,6 +57,18 @@ export const useApp = create<AppStore>((set, get) => ({
       await s.dispatch("DRAWING_ADDED", id, meta);
       get().refresh();
     }
+  },
+
+  async setDrawingRotation(drawingId, rotation) {
+    const s = get().session;
+    if (!s) return;
+    const next = normRotation(rotation);
+    const drawing = get().state.drawings[drawingId];
+    if (!drawing) return;
+    const current = drawing.rotation;
+    if ((typeof current === "number" ? normRotation(current) : 0) === next) return;
+    await s.dispatch("DRAWING_REVISED", drawingId, { rotation: next });
+    get().refresh();
   },
 
   async place(drawingId, revision, page, family, geomType, geometry, initial) {

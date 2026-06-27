@@ -39,7 +39,8 @@ function rotationStorageKey(drawingId: string, revision: string): string {
   return `${ROTATION_STORAGE_PREFIX}:${encodeURIComponent(drawingId)}:${encodeURIComponent(revision)}`;
 }
 
-function loadSavedRotation(drawingId: string, revision: string): number {
+function loadSavedRotation(drawingId: string, revision: string, drawingRotation?: number): number {
+  if (typeof drawingRotation === "number" && Number.isFinite(drawingRotation)) return normRotation(drawingRotation);
   try {
     const raw = window.localStorage.getItem(rotationStorageKey(drawingId, revision));
     if (raw == null) return 0;
@@ -58,10 +59,12 @@ function saveRotation(drawingId: string, revision: string, rotation: number): vo
 }
 
 export function DrawingViewer({ pdf, drawingId, revision }: { pdf: LoadedPdf; drawingId: string; revision: string }) {
+  const drawingRotation = useApp((s) => s.state.drawings[drawingId]?.rotation);
+  const setDrawingRotation = useApp((s) => s.setDrawingRotation);
   const [pageNum, setPageNum] = useState(1);
   const [page, setPage] = useState<PDFPageProxy | null>(null);
   const [scale, setScale] = useState(1);
-  const [rotation, setRotation] = useState(() => loadSavedRotation(drawingId, revision));
+  const [rotation, setRotation] = useState(() => loadSavedRotation(drawingId, revision, drawingRotation));
   const [size, setSize] = useState<{ width: number; height: number } | null>(null);
   const [scrollEl, setScrollEl] = useState<HTMLDivElement | null>(null);
 
@@ -82,6 +85,12 @@ export function DrawingViewer({ pdf, drawingId, revision }: { pdf: LoadedPdf; dr
     () => Object.values(tagsMap).filter((t) => t.drawingId === drawingId && t.page === pageNum && !t.deleted),
     [tagsMap, drawingId, pageNum],
   );
+
+  const persistRotation = useCallback((nextRotation: number) => {
+    const next = normRotation(nextRotation);
+    saveRotation(drawingId, revision, next);
+    void setDrawingRotation(drawingId, next);
+  }, [drawingId, revision, setDrawingRotation]);
 
   useEffect(() => {
     let active = true;
@@ -106,7 +115,10 @@ export function DrawingViewer({ pdf, drawingId, revision }: { pdf: LoadedPdf; dr
 
   useEffect(() => {
     saveRotation(drawingId, revision, rotation);
-  }, [drawingId, revision, rotation]);
+    if (rotation !== 0 || typeof drawingRotation === "number") {
+      void setDrawingRotation(drawingId, rotation);
+    }
+  }, [drawingId, drawingRotation, revision, rotation, setDrawingRotation]);
 
   useEffect(() => {
     setDraftLine(null);
@@ -327,7 +339,11 @@ export function DrawingViewer({ pdf, drawingId, revision }: { pdf: LoadedPdf; dr
         onZoomIn={() => setScale((s) => clamp(s * 1.25))}
         onZoomOut={() => setScale((s) => clamp(s * 0.8))}
         onFit={fit}
-        onRotate={() => setRotation((r) => normRotation(r + 90))}
+        onRotate={() => setRotation((r) => {
+          const next = normRotation(r + 90);
+          persistRotation(next);
+          return next;
+        })}
       />
 
       <div className="toolstrip">

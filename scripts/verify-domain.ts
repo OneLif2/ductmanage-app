@@ -25,6 +25,7 @@ const B = new EventStore("bbb", "Bob");
 // Device A sets up the project, a drawing, a duct tag, and logs 40% progress.
 A.append("PROJECT_SET", "proj1", { name: "PolyU Hostel — Block D" });
 A.append("DRAWING_ADDED", "dwg1", { drawingNo: "207_2", revision: "B", page: 1, block: "D", scale: "1:100" });
+A.append("DRAWING_REVISED", "dwg1", { rotation: 90 });
 const tagId = tagPositionId("207_2", 1, 0.0734, 0.0512);
 A.append("TAG_CREATED", tagId, {
   drawingId: "dwg1", revision: "B", page: 1,
@@ -50,6 +51,7 @@ check(sa.tags[tagId].timeline.length === 2, "marker timeline has 2 progress entr
 check(sa.tags[tagId].latest?.progressPercent === 80, "latest progress = 80 (higher HLC wins deterministically)");
 check(!!sa.tags[tag2], "tag created on B is present on A after sync");
 check(sa.drawings["dwg1"].scale === "1:100", "drawing metadata survived replay");
+check(sa.drawings["dwg1"].rotation === 90, "drawing rotation persists through replay");
 
 // --- Undo (compensating event) ---
 B.undoLast(); // undoes B's last action: the defect tag creation -> TAG_DELETED
