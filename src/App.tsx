@@ -47,7 +47,7 @@ export function App() {
       setBusy(true);
       const res = await fetch("sample.pdf");
       if (!res.ok) throw new Error("sample not found");
-      await open(await res.arrayBuffer(), { id: "207_2", revision: "B", title: "THH/MVAC/207/2 Rev.B (sample)" });
+      await open(await res.arrayBuffer(), { id: "sample", revision: "—", title: "Sample drawing (Equipment Layout)" });
     } catch (e) {
       setError(`Sample unavailable: ${(e as Error).message}`);
       setBusy(false);

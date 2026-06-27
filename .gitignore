@@ -4,6 +4,5 @@ dist/
 *.log
 .DS_Store
 
-# Privacy: do NOT publish the real client drawing to a public GitHub Pages site.
-# Remove this line only if you are OK with the sample being publicly downloadable.
-public/sample.pdf
+# Sample drawing IS published (chosen by the project owner) so the
+# "Load sample drawing" button works on the public site.
