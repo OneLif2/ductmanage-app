@@ -84,7 +84,8 @@ body {
   background: #5b6675;
   display: block;
   padding: 16px;
-  touch-action: pan-x pan-y;
+  touch-action: none;
+  overscroll-behavior: contain;
 }
 .canvas-stack {
   position: relative;

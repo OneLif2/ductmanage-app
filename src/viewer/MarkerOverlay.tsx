@@ -1,4 +1,4 @@
-import { useRef, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
+import { useEffect, useRef, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
 import type { TagState } from "../domain/types";
 import { colorForTag, markerBadge } from "../domain/catalog";
 import { normToView, type RenderBox } from "./coords";
@@ -111,18 +111,68 @@ function PendingMarker({ marker, box }: { marker: NonNullable<MarkerOverlayProps
 
 export function MarkerOverlay({ box, markers, interactive, selectedId, draftLine, pendingMarker, onPlace, onSelect }: MarkerOverlayProps) {
   const lastPlaceRef = useRef<{ x: number; y: number; at: number } | null>(null);
+  const touchIdsRef = useRef<Set<number>>(new Set());
+  const touchTapRef = useRef<{ pointerId: number; x: number; y: number; target: SVGSVGElement } | null>(null);
+
+  useEffect(() => {
+    const clearTouch = (e: PointerEvent) => {
+      touchIdsRef.current.delete(e.pointerId);
+      if (touchTapRef.current?.pointerId === e.pointerId) touchTapRef.current = null;
+      if (touchIdsRef.current.size === 0) touchIdsRef.current.clear();
+    };
+
+    window.addEventListener("pointerup", clearTouch);
+    window.addEventListener("pointercancel", clearTouch);
+    return () => {
+      window.removeEventListener("pointerup", clearTouch);
+      window.removeEventListener("pointercancel", clearTouch);
+    };
+  }, []);
+
+  const placeAt = (clientX: number, clientY: number, target: SVGSVGElement) => {
+    const now = Date.now();
+    const last = lastPlaceRef.current;
+    if (last && now - last.at < 80 && Math.abs(last.x - clientX) < 1 && Math.abs(last.y - clientY) < 1) return;
+    lastPlaceRef.current = { x: clientX, y: clientY, at: now };
+
+    const rect = target.getBoundingClientRect();
+    const x = ((clientX - rect.left) / rect.width) * box.width;
+    const y = ((clientY - rect.top) / rect.height) * box.height;
+    onPlace(x, y);
+  };
 
   const place = (e: ReactPointerEvent<SVGSVGElement> | ReactMouseEvent<SVGSVGElement>) => {
     if (e.button !== 0) return;
-    const now = Date.now();
-    const last = lastPlaceRef.current;
-    if (last && now - last.at < 80 && Math.abs(last.x - e.clientX) < 1 && Math.abs(last.y - e.clientY) < 1) return;
-    lastPlaceRef.current = { x: e.clientX, y: e.clientY, at: now };
 
-    const rect = e.currentTarget.getBoundingClientRect();
-    const x = ((e.clientX - rect.left) / rect.width) * box.width;
-    const y = ((e.clientY - rect.top) / rect.height) * box.height;
-    onPlace(x, y);
+    if ("pointerType" in e && e.pointerType === "touch") {
+      touchIdsRef.current.add(e.pointerId);
+      touchTapRef.current = touchIdsRef.current.size === 1 ? { pointerId: e.pointerId, x: e.clientX, y: e.clientY, target: e.currentTarget } : null;
+      return;
+    }
+
+    placeAt(e.clientX, e.clientY, e.currentTarget);
+  };
+
+  const moveTouch = (e: ReactPointerEvent<SVGSVGElement>) => {
+    const tap = touchTapRef.current;
+    if (e.pointerType !== "touch" || !tap || tap.pointerId !== e.pointerId) return;
+    if (Math.hypot(e.clientX - tap.x, e.clientY - tap.y) > 8) touchTapRef.current = null;
+  };
+
+  const endTouch = (e: ReactPointerEvent<SVGSVGElement>) => {
+    if (e.pointerType !== "touch") return;
+    const tap = touchTapRef.current;
+    touchIdsRef.current.delete(e.pointerId);
+    if (tap && tap.pointerId === e.pointerId && touchIdsRef.current.size === 0) {
+      placeAt(e.clientX, e.clientY, tap.target);
+    }
+    if (tap?.pointerId === e.pointerId) touchTapRef.current = null;
+  };
+
+  const cancelTouch = (e: ReactPointerEvent<SVGSVGElement>) => {
+    if (e.pointerType !== "touch") return;
+    touchIdsRef.current.delete(e.pointerId);
+    if (touchTapRef.current?.pointerId === e.pointerId) touchTapRef.current = null;
   };
 
   const draftVertices = draftLine ? lineVertices(draftLine, box) : [];
@@ -135,6 +185,9 @@ export function MarkerOverlay({ box, markers, interactive, selectedId, draftLine
         height={box.height}
       viewBox={`0 0 ${box.width} ${box.height}`}
       onPointerDown={place}
+      onPointerMove={moveTouch}
+      onPointerUp={endTouch}
+      onPointerCancel={cancelTouch}
       onMouseDown={place}
       style={{ cursor: interactive ? "crosshair" : "default" }}
       >

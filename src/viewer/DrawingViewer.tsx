@@ -35,6 +35,21 @@ interface PendingPlacement {
   anchor: { x: number; y: number };
 }
 
+type TouchPoint = { x: number; y: number };
+
+function pinchPair(points: Map<number, TouchPoint>): [TouchPoint, TouchPoint] | null {
+  const pair = [...points.values()].slice(0, 2);
+  return pair.length === 2 ? [pair[0], pair[1]] : null;
+}
+
+function pinchDistance(a: TouchPoint, b: TouchPoint): number {
+  return Math.hypot(a.x - b.x, a.y - b.y);
+}
+
+function pinchMidpoint(a: TouchPoint, b: TouchPoint): TouchPoint {
+  return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+}
+
 function rotationStorageKey(drawingId: string, revision: string): string {
   return `${ROTATION_STORAGE_PREFIX}:${encodeURIComponent(drawingId)}:${encodeURIComponent(revision)}`;
 }
@@ -76,6 +91,8 @@ export function DrawingViewer({ pdf, drawingId, revision }: { pdf: LoadedPdf; dr
   const panRef = useRef<{ pointerId: number; x: number; y: number; scrollLeft: number; scrollTop: number } | null>(null);
   const scaleRef = useRef(scale);
   const canvasStackRef = useRef<HTMLDivElement | null>(null);
+  const touchPointsRef = useRef<Map<number, TouchPoint>>(new Map());
+  const pinchRef = useRef<{ lastDistance: number } | null>(null);
 
   const tagsMap = useApp((s) => s.state.tags);
   const place = useApp((s) => s.place);
@@ -126,13 +143,11 @@ export function DrawingViewer({ pdf, drawingId, revision }: { pdf: LoadedPdf; dr
     setSelectedId(null);
   }, [drawingId, pageNum]);
 
-  const zoomAt = useCallback((clientX: number, clientY: number, deltaY: number, deltaMode: number) => {
+  const setScaleAtPoint = useCallback((clientX: number, clientY: number, nextScaleRaw: number) => {
     if (!scrollEl) return;
 
     const oldScale = scaleRef.current;
-    const deltaPixels = deltaMode === 1 ? deltaY * 16 : deltaMode === 2 ? deltaY * scrollEl.clientHeight : deltaY;
-    const zoomFactor = Math.min(1.5, Math.max(0.67, Math.exp(-deltaPixels * 0.001)));
-    const nextScale = clamp(oldScale * zoomFactor);
+    const nextScale = clamp(nextScaleRaw);
     if (nextScale === oldScale) return;
 
     const rect = scrollEl.getBoundingClientRect();
@@ -149,6 +164,14 @@ export function DrawingViewer({ pdf, drawingId, revision }: { pdf: LoadedPdf; dr
       scrollEl.scrollTop = contentY * ratio - pointerY;
     });
   }, [scrollEl]);
+
+  const zoomAt = useCallback((clientX: number, clientY: number, deltaY: number, deltaMode: number) => {
+    if (!scrollEl) return;
+
+    const deltaPixels = deltaMode === 1 ? deltaY * 16 : deltaMode === 2 ? deltaY * scrollEl.clientHeight : deltaY;
+    const zoomFactor = Math.min(1.5, Math.max(0.67, Math.exp(-deltaPixels * 0.001)));
+    setScaleAtPoint(clientX, clientY, scaleRef.current * zoomFactor);
+  }, [scrollEl, setScaleAtPoint]);
 
   useEffect(() => {
     if (!scrollEl) return;
@@ -214,7 +237,40 @@ export function DrawingViewer({ pdf, drawingId, revision }: { pdf: LoadedPdf; dr
     };
   }, [lineDraftAnchor, canvasToClient]);
 
+  const beginPinch = (target: HTMLDivElement) => {
+    const pair = pinchPair(touchPointsRef.current);
+    if (!pair) return false;
+
+    const distance = pinchDistance(pair[0], pair[1]);
+    if (distance <= 0) return false;
+
+    for (const pointerId of touchPointsRef.current.keys()) {
+      try {
+        target.setPointerCapture(pointerId);
+      } catch {
+        // Some browsers only allow capture for the current pointer; pinch still works through bubbling.
+      }
+    }
+    panRef.current = null;
+    setIsPanning(false);
+    pinchRef.current = { lastDistance: distance };
+    return true;
+  };
+
   const startPan = (e: PointerEvent<HTMLDivElement>) => {
+    if (e.pointerType === "touch") {
+      touchPointsRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (touchPointsRef.current.size >= 2 && beginPinch(e.currentTarget)) {
+        e.preventDefault();
+        return;
+      }
+    }
+
+    if (pinchRef.current) {
+      e.preventDefault();
+      return;
+    }
+
     const panByTool = tool === "pan" && (e.button === 0 || e.pointerType === "touch" || e.pointerType === "pen");
     const panByMiddleButton = e.button === 1;
     if (!panByTool && !panByMiddleButton) return;
@@ -232,6 +288,25 @@ export function DrawingViewer({ pdf, drawingId, revision }: { pdf: LoadedPdf; dr
   };
 
   const movePan = (e: PointerEvent<HTMLDivElement>) => {
+    if (e.pointerType === "touch" && touchPointsRef.current.has(e.pointerId)) {
+      touchPointsRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    }
+
+    const pinch = pinchRef.current;
+    if (pinch) {
+      const pair = pinchPair(touchPointsRef.current);
+      if (!pair) return;
+      const distance = pinchDistance(pair[0], pair[1]);
+      if (distance <= 0) return;
+
+      e.preventDefault();
+      const midpoint = pinchMidpoint(pair[0], pair[1]);
+      const ratio = distance / pinch.lastDistance;
+      pinch.lastDistance = distance;
+      setScaleAtPoint(midpoint.x, midpoint.y, scaleRef.current * ratio);
+      return;
+    }
+
     const pan = panRef.current;
     if (!pan || pan.pointerId !== e.pointerId) return;
 
@@ -241,8 +316,16 @@ export function DrawingViewer({ pdf, drawingId, revision }: { pdf: LoadedPdf; dr
   };
 
   const endPan = (e: PointerEvent<HTMLDivElement>) => {
+    if (e.pointerType === "touch") {
+      touchPointsRef.current.delete(e.pointerId);
+      if (touchPointsRef.current.size < 2) pinchRef.current = null;
+    }
+
     const pan = panRef.current;
-    if (!pan || pan.pointerId !== e.pointerId) return;
+    if (!pan || pan.pointerId !== e.pointerId) {
+      if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId);
+      return;
+    }
 
     if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId);
     panRef.current = null;
