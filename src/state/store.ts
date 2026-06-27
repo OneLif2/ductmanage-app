@@ -74,7 +74,8 @@ export const useApp = create<AppStore>((set, get) => ({
   async place(drawingId, revision, page, family, geomType, geometry, initial) {
     const s = get().session;
     if (!s) return "";
-    const id = tagPositionId(drawingId, page, geometry[0], geometry[1]);
+    const drawingNo = get().state.drawings[drawingId]?.drawingNo ?? drawingId;
+    const id = tagPositionId(drawingNo, page, geometry[0], geometry[1]);
     await s.dispatch("TAG_CREATED", id, { drawingId, revision, page, family, geomType, geometry });
     await s.dispatch(entryType(family), id, initial);
     get().refresh();

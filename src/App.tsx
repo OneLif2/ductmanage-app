@@ -3,12 +3,42 @@ import { loadPdf, type LoadedPdf } from "./pdf/pdfDocument";
 import { DrawingViewer } from "./viewer/DrawingViewer";
 import { useApp } from "./state/store";
 
-interface DrawingMeta { id: string; revision: string; title: string }
+interface DrawingMeta { id: string; revision: string; title: string; drawingNo: string }
 
-function slugId(name: string): string {
-  return (
-    name.replace(/\.[^.]+$/, "").replace(/[^A-Za-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 24) || "drawing"
-  );
+const SAMPLE_FILE_NAME = "MF Revised Equipment Layout & Opening Drawing  with MB (30-9-2020).pdf";
+const SAMPLE_TITLE = "MF Revised Equipment Layout & Opening Drawing with MB";
+
+function baseName(name: string): string {
+  return name.replace(/\.[^.]+$/, "");
+}
+
+function slugPart(name: string, maxLength = 48): string {
+  return baseName(name).toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, maxLength) || "drawing";
+}
+
+async function sha256Hex(data: ArrayBuffer): Promise<string> {
+  if (globalThis.crypto?.subtle) {
+    const digest = await globalThis.crypto.subtle.digest("SHA-256", data);
+    return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
+  }
+
+  let hash = 2166136261;
+  for (const b of new Uint8Array(data)) {
+    hash ^= b;
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(16).padStart(8, "0");
+}
+
+async function drawingMetaForPdf(fileName: string, data: ArrayBuffer, revision = "—", title = fileName): Promise<DrawingMeta> {
+  const slug = slugPart(fileName);
+  const hash = (await sha256Hex(data)).slice(0, 16);
+  return {
+    id: `pdf_${slug}_${data.byteLength}_${hash}`,
+    revision,
+    title,
+    drawingNo: slug,
+  };
 }
 
 export function App() {
@@ -28,7 +58,7 @@ export function App() {
       const loaded = await loadPdf(data);
       const app = useApp.getState();
       await app.init();
-      await app.ensureDrawing(meta.id, { drawingNo: meta.id, title: meta.title, revision: meta.revision, page: 1 });
+      await app.ensureDrawing(meta.id, { drawingNo: meta.drawingNo, title: meta.title, revision: meta.revision, page: 1 });
       setPdf(loaded);
       setDrawing(meta);
     } catch (e) {
@@ -39,7 +69,8 @@ export function App() {
   }
 
   async function onFile(file: File) {
-    open(await file.arrayBuffer(), { id: slugId(file.name), revision: "—", title: file.name });
+    const data = await file.arrayBuffer();
+    open(data, await drawingMetaForPdf(file.name, data, "—", file.name));
   }
 
   async function loadSample() {
@@ -47,11 +78,8 @@ export function App() {
       setBusy(true);
       const res = await fetch("sample.pdf");
       if (!res.ok) throw new Error("sample not found");
-      await open(await res.arrayBuffer(), {
-        id: "mf-revised-equipment-layout-opening-drawing-mb-2020-09-30",
-        revision: "30-9-2020",
-        title: "MF Revised Equipment Layout & Opening Drawing with MB",
-      });
+      const data = await res.arrayBuffer();
+      await open(data, await drawingMetaForPdf(SAMPLE_FILE_NAME, data, "30-9-2020", SAMPLE_TITLE));
     } catch (e) {
       setError(`Sample unavailable: ${(e as Error).message}`);
       setBusy(false);
