@@ -47,7 +47,11 @@ export function App() {
       setBusy(true);
       const res = await fetch("sample.pdf");
       if (!res.ok) throw new Error("sample not found");
-      await open(await res.arrayBuffer(), { id: "sample", revision: "—", title: "Sample drawing (Equipment Layout)" });
+      await open(await res.arrayBuffer(), {
+        id: "mf-revised-equipment-layout-opening-drawing-mb-2020-09-30",
+        revision: "30-9-2020",
+        title: "MF Revised Equipment Layout & Opening Drawing with MB",
+      });
     } catch (e) {
       setError(`Sample unavailable: ${(e as Error).message}`);
       setBusy(false);
@@ -72,7 +76,7 @@ export function App() {
         {error && <div className="banner error">{error}</div>}
         {busy && !pdf && <div className="banner">Loading…</div>}
         {pdf && drawing ? (
-          <DrawingViewer pdf={pdf} drawingId={drawing.id} revision={drawing.revision} />
+          <DrawingViewer key={`${drawing.id}:${drawing.revision}`} pdf={pdf} drawingId={drawing.id} revision={drawing.revision} />
         ) : (
           <div className="empty">
             <h1>Open an air-duct layout drawing</h1>

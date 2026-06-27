@@ -8,6 +8,7 @@ import {
   TAG_KINDS,
   WIP_PERCENTS,
   byKey,
+  effectiveProgressStatus,
   familyLabel,
   type Option,
 } from "../domain/catalog";
@@ -67,8 +68,9 @@ function describeEntry(family: TagState["family"], e: ProgressEntry): string {
     return `${sev}${sev && st ? " / " : ""}${st}`;
   }
   if (family === "tag") return byKey(TAG_KINDS, e.tagKind)?.en ?? e.tagKind ?? "Tag";
-  const st = byKey(PROGRESS_STATUSES, e.status)?.en ?? e.status ?? "";
-  return e.status === "wip" && typeof e.progressPercent === "number" ? `${st} - ${e.progressPercent}%` : st;
+  const status = effectiveProgressStatus(e);
+  const st = byKey(PROGRESS_STATUSES, status)?.en ?? status ?? "";
+  return status === "wip" && typeof e.progressPercent === "number" ? `${st} - ${e.progressPercent}%` : st;
 }
 
 export function MarkerEditorPopover({
@@ -85,7 +87,7 @@ export function MarkerEditorPopover({
   const deleteTag = useApp((s) => s.deleteTag);
   const latest = tag?.latest;
 
-  const [status, setStatus] = useState(latest?.status ?? (mode === "create" ? "wip" : "not_started"));
+  const [status, setStatus] = useState(effectiveProgressStatus(latest) ?? (mode === "create" ? "wip" : "not_started"));
   const [percent, setPercent] = useState<number>(latest?.progressPercent ?? 40);
   const [severity, setSeverity] = useState(latest?.severity ?? "major");
   const [dstatus, setDstatus] = useState(latest?.status ?? "open");
@@ -101,12 +103,24 @@ export function MarkerEditorPopover({
   const title = mode === "create" ? `New ${familyLabel(family)}` : familyLabel(family);
   const timeline = tag?.timeline ?? [];
 
+  function changeProgressStatus(nextStatus: string) {
+    setStatus(nextStatus);
+    if (nextStatus === "wip" && percent >= 100) setPercent(80);
+  }
+
+  function changeProgressPercent(nextPercent: number) {
+    const clamped = Math.max(0, Math.min(100, nextPercent));
+    setPercent(clamped);
+    setStatus(clamped >= 100 ? "completed" : "wip");
+  }
+
   function payload(): Record<string, unknown> {
     if (family === "defect") return { severity, status: dstatus, remark: remark || undefined };
     if (family === "tag") return { tagKind: kind, remark: remark || undefined };
+    const progressStatus = status === "wip" && percent >= 100 ? "completed" : status;
     return {
-      status,
-      progressPercent: status === "wip" ? percent : undefined,
+      status: progressStatus,
+      progressPercent: progressStatus === "wip" ? percent : undefined,
       remark: remark || undefined,
       responsibleTeam: team || undefined,
     };
@@ -153,13 +167,13 @@ export function MarkerEditorPopover({
         {family === "progress" && (
           <>
             <div className="field-label">Status</div>
-            <Chips options={PROGRESS_STATUSES} value={status} onChange={setStatus} />
+            <Chips options={PROGRESS_STATUSES} value={status} onChange={changeProgressStatus} />
             {status === "wip" && (
               <>
                 <div className="field-label">Progress %</div>
                 <div className="pcts compact">
                   {WIP_PERCENTS.map((p) => (
-                    <button key={p} className={`pct ${percent === p ? "active" : ""}`} onClick={() => setPercent(p)} type="button">
+                    <button key={p} className={`pct ${percent === p ? "active" : ""}`} onClick={() => changeProgressPercent(p)} type="button">
                       {p}
                     </button>
                   ))}
@@ -169,7 +183,7 @@ export function MarkerEditorPopover({
                     min={0}
                     max={100}
                     value={percent}
-                    onChange={(e) => setPercent(Math.max(0, Math.min(100, Number(e.target.value) || 0)))}
+                    onChange={(e) => changeProgressPercent(Number(e.target.value) || 0)}
                   />
                 </div>
               </>

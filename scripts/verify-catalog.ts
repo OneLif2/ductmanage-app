@@ -24,6 +24,11 @@ check(colorForTag(mk("progress", { status: "wip", progressPercent: 60 })) === "#
 check(colorForTag(mk("progress", { status: "completed" })) === "#1e7a46", "progress completed -> dark green");
 check(markerBadge(mk("progress", { status: "wip", progressPercent: 60 })) === "60", "wip badge shows %");
 check(markerBadge(mk("progress", { status: "completed" })) === "✓", "completed badge is check");
+check(colorForTag(mk("progress", { status: "wip", progressPercent: 100 })) === "#1e7a46", "wip 100 -> completed colour");
+check(
+  markerBadge(mk("progress", { status: "wip", progressPercent: 100 })) === markerBadge(mk("progress", { status: "completed" })),
+  "wip 100 badge matches completed",
+);
 check(colorForTag(mk("defect", { severity: "critical", status: "open" })) === "#c0392b", "defect critical -> red");
 check(colorForTag(mk("defect", { severity: "critical", status: "closed" })) === "#1e7a46", "defect closed -> green");
 check(markerBadge(mk("defect", { severity: "major", status: "open" })) === "!", "defect badge is !");

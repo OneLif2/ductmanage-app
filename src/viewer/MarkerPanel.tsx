@@ -5,7 +5,7 @@ import type { ProgressEntry, TagState } from "../domain/types";
 import { useApp } from "../state/store";
 import {
   PROGRESS_STATUSES, WIP_PERCENTS, DEFECT_SEVERITIES, DEFECT_STATUSES, TAG_KINDS,
-  byKey, familyLabel, type Option,
+  byKey, effectiveProgressStatus, familyLabel, type Option,
 } from "../domain/catalog";
 
 function Chips({ options, value, onChange }: { options: Option[]; value: string; onChange: (k: string) => void }) {
@@ -32,8 +32,9 @@ function describeEntry(family: TagState["family"], e: ProgressEntry): string {
     return `${sev}${sev && st ? " · " : ""}${st}`;
   }
   if (family === "tag") return byKey(TAG_KINDS, e.tagKind)?.en ?? e.tagKind ?? "Tag";
-  const st = byKey(PROGRESS_STATUSES, e.status)?.en ?? e.status ?? "";
-  return e.status === "wip" && typeof e.progressPercent === "number" ? `${st} — ${e.progressPercent}%` : st;
+  const status = effectiveProgressStatus(e);
+  const st = byKey(PROGRESS_STATUSES, status)?.en ?? status ?? "";
+  return status === "wip" && typeof e.progressPercent === "number" ? `${st} — ${e.progressPercent}%` : st;
 }
 
 export function MarkerPanel({ tagId, onClose }: { tagId: string; onClose: () => void }) {
@@ -43,7 +44,7 @@ export function MarkerPanel({ tagId, onClose }: { tagId: string; onClose: () => 
   const deleteTag = useApp((s) => s.deleteTag);
   const latest = tag?.latest;
 
-  const [status, setStatus] = useState(latest?.status ?? "not_started");
+  const [status, setStatus] = useState(effectiveProgressStatus(latest) ?? "not_started");
   const [percent, setPercent] = useState<number>(latest?.progressPercent ?? 40);
   const [severity, setSeverity] = useState(latest?.severity ?? "major");
   const [dstatus, setDstatus] = useState(latest?.status ?? "open");
@@ -55,11 +56,30 @@ export function MarkerPanel({ tagId, onClose }: { tagId: string; onClose: () => 
   if (!tag || tag.deleted) return null;
   const family = tag.family;
 
+  function changeProgressStatus(nextStatus: string) {
+    setStatus(nextStatus);
+    if (nextStatus === "wip" && percent >= 100) setPercent(80);
+  }
+
+  function changeProgressPercent(nextPercent: number) {
+    const clamped = Math.max(0, Math.min(100, nextPercent));
+    setPercent(clamped);
+    setStatus(clamped >= 100 ? "completed" : "wip");
+  }
+
   async function submit() {
     let payload: Record<string, unknown>;
     if (family === "defect") payload = { severity, status: dstatus, remark: remark || undefined };
     else if (family === "tag") payload = { tagKind: kind, remark: remark || undefined };
-    else payload = { status, progressPercent: status === "wip" ? percent : undefined, remark: remark || undefined, responsibleTeam: team || undefined };
+    else {
+      const progressStatus = status === "wip" && percent >= 100 ? "completed" : status;
+      payload = {
+        status: progressStatus,
+        progressPercent: progressStatus === "wip" ? percent : undefined,
+        remark: remark || undefined,
+        responsibleTeam: team || undefined,
+      };
+    }
 
     if (editLast && tag.timeline.length) await correctLast(tagId, payload);
     else await addUpdate(tagId, family, payload);
@@ -78,16 +98,16 @@ export function MarkerPanel({ tagId, onClose }: { tagId: string; onClose: () => 
         {family === "progress" && (
           <>
             <div className="field-label">Status / 狀態</div>
-            <Chips options={PROGRESS_STATUSES} value={status} onChange={setStatus} />
+            <Chips options={PROGRESS_STATUSES} value={status} onChange={changeProgressStatus} />
             {status === "wip" && (
               <>
                 <div className="field-label">WIP %</div>
                 <div className="pcts">
                   {WIP_PERCENTS.map((p) => (
-                    <button key={p} className={`pct ${percent === p ? "active" : ""}`} onClick={() => setPercent(p)}>{p}</button>
+                    <button key={p} className={`pct ${percent === p ? "active" : ""}`} onClick={() => changeProgressPercent(p)}>{p}</button>
                   ))}
                   <input className="pct-input" type="number" min={0} max={100} value={percent}
-                    onChange={(e) => setPercent(Math.max(0, Math.min(100, Number(e.target.value) || 0)))} />
+                    onChange={(e) => changeProgressPercent(Number(e.target.value) || 0)} />
                 </div>
               </>
             )}

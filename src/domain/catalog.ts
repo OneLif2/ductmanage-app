@@ -1,5 +1,5 @@
 // Single source of truth for statuses, severities, tag types, colours and labels.
-import type { TagState } from "./types";
+import type { ProgressEntry, TagState } from "./types";
 
 export interface Option {
   key: string;
@@ -16,7 +16,14 @@ export const PROGRESS_STATUSES: Option[] = [
   { key: "completed", en: "Completed", zh: "已完成", color: "#1e7a46" },
 ];
 
-export const WIP_PERCENTS = [1, 5, 10, 20, 40, 50, 60, 80, 100];
+export const WIP_PERCENTS = [1, 5, 10, 20, 40, 50, 60, 80];
+
+export function effectiveProgressStatus(entry?: Pick<ProgressEntry, "status" | "progressPercent"> | null): string | undefined {
+  const status = typeof entry?.status === "string" ? entry.status.toLowerCase() : entry?.status;
+  const percent = Number(entry?.progressPercent);
+  if (status === "wip" && Number.isFinite(percent) && percent >= 100) return "completed";
+  return status;
+}
 
 export const DEFECT_SEVERITIES: Option[] = [
   { key: "critical", en: "Critical", zh: "嚴重", color: "#c0392b" },
@@ -54,7 +61,7 @@ export function colorForTag(tag: TagState): string {
   if (tag.family === "tag") {
     return byKey(TAG_KINDS, l?.tagKind)?.color ?? "#6c757d";
   }
-  return byKey(PROGRESS_STATUSES, l?.status)?.color ?? "#9aa7b5";
+  return byKey(PROGRESS_STATUSES, effectiveProgressStatus(l))?.color ?? "#9aa7b5";
 }
 
 /** Short glyph shown on the marker: WIP %, ✓ when complete, ! for defects, kind initial for tags. */
@@ -62,8 +69,9 @@ export function markerBadge(tag: TagState): string | null {
   const l = tag.latest;
   if (tag.family === "defect") return "!";
   if (tag.family === "tag") return (byKey(TAG_KINDS, l?.tagKind)?.en ?? "T").slice(0, 1);
-  if (l?.status === "wip" && typeof l.progressPercent === "number") return String(l.progressPercent);
-  if (l?.status === "completed" || l?.status === "inspected") return "✓";
+  const status = effectiveProgressStatus(l);
+  if (status === "wip" && typeof l?.progressPercent === "number") return String(l.progressPercent);
+  if (status === "completed" || status === "inspected") return "✓";
   return null;
 }
 

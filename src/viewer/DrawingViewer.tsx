@@ -14,7 +14,9 @@ const MIN_SCALE = 0.1;
 const MAX_SCALE = 8;
 const LINE_ACTION_WIDTH = 172;
 const LINE_ACTION_HEIGHT = 48;
+const ROTATION_STORAGE_PREFIX = "ductmanage.viewer.rotation";
 const clamp = (s: number) => Math.min(MAX_SCALE, Math.max(MIN_SCALE, s));
+const normRotation = (r: number) => ((Math.round(r / 90) * 90) % 360 + 360) % 360;
 
 type Tool = "pan" | "select" | "progress" | "defect" | "tag" | "line";
 const TOOLS: { key: Tool; label: string }[] = [
@@ -33,11 +35,33 @@ interface PendingPlacement {
   anchor: { x: number; y: number };
 }
 
+function rotationStorageKey(drawingId: string, revision: string): string {
+  return `${ROTATION_STORAGE_PREFIX}:${encodeURIComponent(drawingId)}:${encodeURIComponent(revision)}`;
+}
+
+function loadSavedRotation(drawingId: string, revision: string): number {
+  try {
+    const raw = window.localStorage.getItem(rotationStorageKey(drawingId, revision));
+    if (raw == null) return 0;
+    return normRotation(Number(raw));
+  } catch {
+    return 0;
+  }
+}
+
+function saveRotation(drawingId: string, revision: string, rotation: number): void {
+  try {
+    window.localStorage.setItem(rotationStorageKey(drawingId, revision), String(normRotation(rotation)));
+  } catch {
+    // localStorage can be unavailable in some privacy modes; rotation still works for the current session.
+  }
+}
+
 export function DrawingViewer({ pdf, drawingId, revision }: { pdf: LoadedPdf; drawingId: string; revision: string }) {
   const [pageNum, setPageNum] = useState(1);
   const [page, setPage] = useState<PDFPageProxy | null>(null);
   const [scale, setScale] = useState(1);
-  const [rotation, setRotation] = useState(0);
+  const [rotation, setRotation] = useState(() => loadSavedRotation(drawingId, revision));
   const [size, setSize] = useState<{ width: number; height: number } | null>(null);
   const [scrollEl, setScrollEl] = useState<HTMLDivElement | null>(null);
 
@@ -79,6 +103,10 @@ export function DrawingViewer({ pdf, drawingId, revision }: { pdf: LoadedPdf; dr
   useEffect(() => {
     scaleRef.current = scale;
   }, [scale]);
+
+  useEffect(() => {
+    saveRotation(drawingId, revision, rotation);
+  }, [drawingId, revision, rotation]);
 
   useEffect(() => {
     setDraftLine(null);
@@ -299,7 +327,7 @@ export function DrawingViewer({ pdf, drawingId, revision }: { pdf: LoadedPdf; dr
         onZoomIn={() => setScale((s) => clamp(s * 1.25))}
         onZoomOut={() => setScale((s) => clamp(s * 0.8))}
         onFit={fit}
-        onRotate={() => setRotation((r) => (r + 90) % 360)}
+        onRotate={() => setRotation((r) => normRotation(r + 90))}
       />
 
       <div className="toolstrip">
