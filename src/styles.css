@@ -101,7 +101,7 @@ body {
   user-select: none;
 }
 .line-draft-actions {
-  position: absolute;
+  position: fixed;
   z-index: 28;
   width: 172px;
   min-height: 48px;
@@ -124,7 +124,7 @@ body {
 
 /* Marker editor popover */
 .marker-popover {
-  position: absolute;
+  position: fixed;
   z-index: 30;
   width: 340px;
   max-width: min(340px, calc(100vw - 32px));

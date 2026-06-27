@@ -48,6 +48,7 @@ export function DrawingViewer({ pdf, drawingId, revision }: { pdf: LoadedPdf; dr
   const [isPanning, setIsPanning] = useState(false);
   const panRef = useRef<{ pointerId: number; x: number; y: number; scrollLeft: number; scrollTop: number } | null>(null);
   const scaleRef = useRef(scale);
+  const canvasStackRef = useRef<HTMLDivElement | null>(null);
 
   const tagsMap = useApp((s) => s.state.tags);
   const place = useApp((s) => s.place);
@@ -130,6 +131,16 @@ export function DrawingViewer({ pdf, drawingId, revision }: { pdf: LoadedPdf; dr
 
   const box: RenderBox | null = size ? { width: size.width, height: size.height, rotation } : null;
 
+  // Convert a canvas-space point to viewport (client) coordinates, so floating UI
+  // (marker editor, line action bar) can be positioned with `fixed` and stay on-screen
+  // regardless of zoom/scroll.
+  const canvasToClient = useCallback((cx: number, cy: number) => {
+    const el = canvasStackRef.current;
+    if (!el) return { x: cx, y: cy };
+    const r = el.getBoundingClientRect();
+    return { x: r.left + cx, y: r.top + cy };
+  }, []);
+
   const cancelLineDraft = useCallback(() => {
     setDraftLine(null);
   }, []);
@@ -138,28 +149,30 @@ export function DrawingViewer({ pdf, drawingId, revision }: { pdf: LoadedPdf; dr
     if (!box || !draftLine || draftLine.length < 4) return false;
     const lastX = draftLine[draftLine.length - 2];
     const lastY = draftLine[draftLine.length - 1];
+    const v = normToView(lastX, lastY, box);
     setPending({
       family: "progress",
       geomType: "line",
       geometry: draftLine,
-      anchor: normToView(lastX, lastY, box),
+      anchor: canvasToClient(v.x, v.y),
     });
     setDraftLine(null);
     setSelectedId(null);
     return true;
-  }, [box, draftLine]);
+  }, [box, draftLine, canvasToClient]);
 
   const lineDraftAnchor = useMemo(() => {
     if (!box || !draftLine || draftLine.length < 4) return null;
     return normToView(draftLine[draftLine.length - 2], draftLine[draftLine.length - 1], box);
   }, [box, draftLine]);
   const lineDraftActionPos = useMemo(() => {
-    if (!box || !lineDraftAnchor) return null;
+    if (!lineDraftAnchor) return null;
+    const c = canvasToClient(lineDraftAnchor.x, lineDraftAnchor.y);
     return {
-      x: Math.min(Math.max(8, lineDraftAnchor.x + 14), Math.max(8, box.width - LINE_ACTION_WIDTH - 8)),
-      y: Math.min(Math.max(8, lineDraftAnchor.y + 14), Math.max(8, box.height - LINE_ACTION_HEIGHT - 8)),
+      x: Math.min(Math.max(8, c.x + 14), Math.max(8, window.innerWidth - LINE_ACTION_WIDTH - 8)),
+      y: Math.min(Math.max(8, c.y + 14), Math.max(8, window.innerHeight - LINE_ACTION_HEIGHT - 8)),
     };
-  }, [box, lineDraftAnchor]);
+  }, [lineDraftAnchor, canvasToClient]);
 
   const startPan = (e: PointerEvent<HTMLDivElement>) => {
     const panByTool = tool === "pan" && (e.button === 0 || e.pointerType === "touch" || e.pointerType === "pen");
@@ -215,7 +228,7 @@ export function DrawingViewer({ pdf, drawingId, revision }: { pdf: LoadedPdf; dr
       family,
       geomType: "point",
       geometry: [nx, ny],
-      anchor: { x: screenX, y: screenY },
+      anchor: canvasToClient(screenX, screenY),
     });
     setSelectedId(null);
   };
@@ -265,13 +278,16 @@ export function DrawingViewer({ pdf, drawingId, revision }: { pdf: LoadedPdf; dr
   const selectedMarker = selectedId ? markers.find((m) => m.id === selectedId) ?? null : null;
   const selectedAnchor = useMemo(() => {
     if (!box || !selectedMarker) return null;
+    let v: { x: number; y: number };
     if (selectedMarker.geomType === "line" && selectedMarker.geometry.length >= 4) {
       const a = normToView(selectedMarker.geometry[0], selectedMarker.geometry[1], box);
       const b = normToView(selectedMarker.geometry[2], selectedMarker.geometry[3], box);
-      return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+      v = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+    } else {
+      v = normToView(selectedMarker.geometry[0], selectedMarker.geometry[1], box);
     }
-    return normToView(selectedMarker.geometry[0], selectedMarker.geometry[1], box);
-  }, [box, selectedMarker]);
+    return canvasToClient(v.x, v.y);
+  }, [box, selectedMarker, canvasToClient]);
 
   return (
     <div className="viewer">
@@ -311,7 +327,7 @@ export function DrawingViewer({ pdf, drawingId, revision }: { pdf: LoadedPdf; dr
         onContextMenu={handleContextMenu}
       >
         {page ? (
-          <div className="canvas-stack">
+          <div className="canvas-stack" ref={canvasStackRef}>
             <PdfCanvas page={page} scale={scale} rotation={rotation} onViewport={setSize} />
             {box && (
               <MarkerOverlay
@@ -336,7 +352,6 @@ export function DrawingViewer({ pdf, drawingId, revision }: { pdf: LoadedPdf; dr
                 mode="create"
                 family={pending.family}
                 anchor={pending.anchor}
-                box={box}
                 onCreate={createPending}
                 onClose={() => setPending(null)}
               />
@@ -347,7 +362,6 @@ export function DrawingViewer({ pdf, drawingId, revision }: { pdf: LoadedPdf; dr
                 family={selectedMarker.family}
                 tagId={selectedMarker.id}
                 anchor={selectedAnchor}
-                box={box}
                 onClose={() => setSelectedId(null)}
               />
             )}

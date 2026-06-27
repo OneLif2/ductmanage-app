@@ -11,15 +11,13 @@ import {
   familyLabel,
   type Option,
 } from "../domain/catalog";
-import type { RenderBox } from "./coords";
-
 type Anchor = { x: number; y: number };
 
 interface MarkerEditorPopoverProps {
   mode: "create" | "edit";
   family: Family;
+  /** Anchor in VIEWPORT (client) coordinates — the marker's on-screen position. */
   anchor: Anchor;
-  box: RenderBox;
   tagId?: string;
   onCreate?: (payload: Record<string, unknown>) => Promise<void> | void;
   onClose: () => void;
@@ -28,13 +26,16 @@ interface MarkerEditorPopoverProps {
 const POPOVER_WIDTH = 340;
 const POPOVER_HEIGHT = 520;
 
-function popupPosition(anchor: Anchor, box: RenderBox): Anchor {
-  const roomRight = box.width - anchor.x;
-  const roomBottom = box.height - anchor.y;
+// Place the popover next to the marker but always inside the visible window.
+function popupPosition(anchor: Anchor): Anchor {
+  const vw = typeof window !== "undefined" ? window.innerWidth : 1024;
+  const vh = typeof window !== "undefined" ? window.innerHeight : 768;
+  const roomRight = vw - anchor.x;
+  const roomBottom = vh - anchor.y;
   const rawLeft = roomRight >= POPOVER_WIDTH + 24 ? anchor.x + 14 : anchor.x - POPOVER_WIDTH - 14;
   const rawTop = roomBottom >= POPOVER_HEIGHT + 24 ? anchor.y + 14 : anchor.y - POPOVER_HEIGHT - 14;
-  const maxLeft = Math.max(8, box.width - POPOVER_WIDTH - 8);
-  const maxTop = Math.max(8, box.height - POPOVER_HEIGHT - 8);
+  const maxLeft = Math.max(8, vw - POPOVER_WIDTH - 8);
+  const maxTop = Math.max(8, vh - POPOVER_HEIGHT - 8);
   return {
     x: Math.min(maxLeft, Math.max(8, rawLeft)),
     y: Math.min(maxTop, Math.max(8, rawTop)),
@@ -74,7 +75,6 @@ export function MarkerEditorPopover({
   mode,
   family,
   anchor,
-  box,
   tagId,
   onCreate,
   onClose,
@@ -97,7 +97,7 @@ export function MarkerEditorPopover({
 
   if (mode === "edit" && (!tag || tag.deleted || !tagId)) return null;
 
-  const pos = popupPosition(anchor, box);
+  const pos = popupPosition(anchor);
   const title = mode === "create" ? `New ${familyLabel(family)}` : familyLabel(family);
   const timeline = tag?.timeline ?? [];
 
